@@ -2,7 +2,7 @@
 
 This Python script automatically imports Kentucky Basketball game schedules into Google Calendar. It parses HTML schedule data from https://ukathletics.com/sports/mbball/schedule/ and creates Google calendar events for upcoming games while skipping past games and avoiding duplicate entries.
 
-This was mostly generated using Claude - I haven't closely code reviewed it, and onky cleaned up things as I saw them. It works, but it is janky. I may come back next year and make some tweaks, but it got the job done for now. 
+This was mostly generated using Claude - I haven't closely code reviewed it, and only cleaned up things as I saw them. It works, but it is janky. I may come back next year and make some tweaks, but it got the job done for now. 
 
 ## Features
 
