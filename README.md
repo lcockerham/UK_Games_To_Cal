@@ -25,18 +25,28 @@ This was mostly generated using Claude - I haven't closely code reviewed it, and
 
 ## Installation
 
-1. Clone this repository
+1. Clone this repository:
+   ```bash
+   git clone https://github.com/lcockerham/UK_Games_To_Cal.git
+   cd UK_Games_To_Cal
+   ```
+
 2. Install required packages:
-```bash
-pip install --upgrade google-api-python-client google-auth-httplib2 google-auth-oauthlib beautifulsoup4
-```
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+   Or manually:
+   ```bash
+   pip install --upgrade google-api-python-client google-auth-httplib2 google-auth-oauthlib beautifulsoup4
+   ```
 
 3. Set up Google Calendar API:
    - Go to the [Google Cloud Console](https://console.cloud.google.com/)
    - Create a new project
    - Enable the Google Calendar API
-   - Create OAuth 2.0 credentials
-   - Download the client configuration file and rename it to `client_secret_[YOUR_CLIENT_ID].json`
+   - Create OAuth 2.0 credentials (Desktop application)
+   - Download the client configuration file
 
 ## Configuration
 
@@ -174,10 +184,51 @@ The script includes comprehensive error handling for:
 - Token credentials are stored in `token.pickle` (delete to re-authenticate)
 - HTML schedule files should be downloaded fresh from the athletic websites for accuracy
 
+## Development
+
+### Code Quality
+
+This project uses pylint for code quality checks. To run linting:
+
+```bash
+# Run pylint on all Python files
+make lint
+
+# Or manually:
+python -m pylint main.py eku_main.py update_attendees.py
+```
+
+### Auto-fix Common Issues
+
+```bash
+# Fix import ordering and some formatting issues
+make lint-fix
+```
+
+### Project Structure
+
+```
+UK_Games_To_Cal/
+├── main.py                 # UK Basketball schedule parser
+├── eku_main.py            # EKU Basketball schedule parser (home games)
+├── update_attendees.py    # Utility to update existing events
+├── config.json.example    # Configuration template
+├── config.json            # Your config (not in git)
+├── requirements.txt       # Python dependencies
+├── .pylintrc             # Pylint configuration
+├── .gitignore            # Git ignore rules
+└── README.md             # This file
+```
+
 ## Contributing
 
 Feel free to submit issues and pull requests for any improvements or bug fixes.
 
+When contributing:
+1. Run `make lint` to check code quality
+2. Ensure all scripts work with the config.json system
+3. Update README if adding new features
+
 ## License
 
-[Add your chosen license here]
+MIT License - See LICENSE file for details

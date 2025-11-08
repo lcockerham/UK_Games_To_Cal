@@ -1,0 +1,10 @@
+# Google Calendar API dependencies
+google-api-python-client>=2.0.0
+google-auth-httplib2>=0.1.0
+google-auth-oauthlib>=0.5.0
+
+# HTML parsing
+beautifulsoup4>=4.9.0
+
+# Development tools
+pylint>=2.15.0
