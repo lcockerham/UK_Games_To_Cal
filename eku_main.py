@@ -1,20 +1,20 @@
-from bs4 import BeautifulSoup
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
-from googleapiclient.discovery import build
-from datetime import datetime, timedelta
+"""EKU Basketball schedule parser for HOME games only."""
+import json
 import os.path
 import pickle
-import json
-import re
+from datetime import datetime, timedelta
+
+from bs4 import BeautifulSoup
+from google.auth.transport.requests import Request
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
 
 SCOPES = ['https://www.googleapis.com/auth/calendar.events']
 
 def load_config():
     """Load configuration from config.json file."""
     try:
-        with open('config.json', 'r') as f:
+        with open('config.json', 'r', encoding='utf-8') as f:
             return json.load(f)
     except FileNotFoundError:
         print("ERROR: config.json not found!")
@@ -88,7 +88,7 @@ def parse_eku_schedule(html_content):
                                 })
 
                                 print(f"Found home game: {opponent} on {game_datetime}")
-        except Exception as e:
+        except (json.JSONDecodeError, ValueError) as e:
             print(f"Error parsing JSON-LD: {str(e)}")
             continue
 
@@ -167,7 +167,7 @@ def create_calendar_events(games):
             if attendee_emails:
                 event['attendees'] = [{'email': email} for email in attendee_emails]
 
-            event = service.events().insert(calendarId='primary', body=event, sendUpdates='all').execute()
+            service.events().insert(calendarId='primary', body=event, sendUpdates='all').execute()
             print(f'Created calendar event for home game vs {game["opponent"]}')
 
         except Exception as e:
@@ -175,6 +175,7 @@ def create_calendar_events(games):
             raise
 
 def main():
+    """Main function to parse EKU schedule and create calendar events."""
     # Read HTML content from file
     with open('eku_sched.html', 'r', encoding='utf-8') as file:
         html_content = file.read()

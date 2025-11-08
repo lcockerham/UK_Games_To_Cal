@@ -19,6 +19,8 @@ disable=
     R0914,  # Too many local variables
     W0703,  # Catching too general exception
     R0801,  # Similar lines in other files
+    E1101,  # Google API dynamic methods (false positive)
+    R1702,  # Too many nested blocks (complex parsing acceptable)
 
 [FORMAT]
 # Maximum number of characters on a single line

@@ -1,18 +1,19 @@
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
-from googleapiclient.discovery import build
-from datetime import datetime
+"""Update attendees on existing Kentucky Basketball calendar events."""
+import json
 import os.path
 import pickle
-import json
+from datetime import datetime
+
+from google.auth.transport.requests import Request
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
 
 SCOPES = ['https://www.googleapis.com/auth/calendar.events']
 
 def load_config():
     """Load configuration from config.json file."""
     try:
-        with open('config.json', 'r') as f:
+        with open('config.json', 'r', encoding='utf-8') as f:
             return json.load(f)
     except FileNotFoundError:
         print("ERROR: config.json not found!")
@@ -82,7 +83,7 @@ def update_all_kentucky_events():
             event['attendees'] = [{'email': email} for email in attendee_emails]
 
             # Update the event
-            updated_event = service.events().update(
+            service.events().update(
                 calendarId='primary',
                 eventId=event_id,
                 body=event,
