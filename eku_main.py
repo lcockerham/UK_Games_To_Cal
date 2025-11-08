@@ -11,8 +11,27 @@ import re
 
 SCOPES = ['https://www.googleapis.com/auth/calendar.events']
 
+def load_config():
+    """Load configuration from config.json file."""
+    try:
+        with open('config.json', 'r') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        print("ERROR: config.json not found!")
+        print("Please copy config.json.example to config.json and fill in your details.")
+        raise
+    except json.JSONDecodeError as e:
+        print(f"ERROR: Invalid JSON in config.json: {e}")
+        raise
+
 def get_credentials():
     """Gets valid user credentials from storage or initiates OAuth2 flow."""
+    config = load_config()
+    client_secret_file = config.get('google_client_secret_file')
+
+    if not client_secret_file:
+        raise ValueError("google_client_secret_file not specified in config.json")
+
     creds = None
     if os.path.exists('token.pickle'):
         with open('token.pickle', 'rb') as token:
@@ -22,8 +41,7 @@ def get_credentials():
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                'client_secret_94829445065-jj6fc83as2g12lijs73dtnuetvmsmipb.apps.googleusercontent.com.json', SCOPES)
+            flow = InstalledAppFlow.from_client_secrets_file(client_secret_file, SCOPES)
             creds = flow.run_local_server(port=0)
         with open('token.pickle', 'wb') as token:
             pickle.dump(creds, token)
@@ -109,6 +127,9 @@ def does_event_exist(service, event_summary, event_start):
 
 def create_calendar_events(games):
     """Creates Google Calendar events for each home game."""
+    config = load_config()
+    attendee_emails = config.get('attendees', [])
+
     creds = get_credentials()
     service = build('calendar', 'v3', credentials=creds)
 
@@ -124,6 +145,7 @@ def create_calendar_events(games):
             # Calculate end time (2 hours later)
             end_time = game['datetime'] + timedelta(hours=2)
 
+            # Build event object
             event = {
                 'summary': event_summary,
                 'location': game['location'],
@@ -136,13 +158,14 @@ def create_calendar_events(games):
                     'dateTime': end_time.isoformat(),
                     'timeZone': 'America/New_York',
                 },
-                'attendees': [
-                    {'email': 'jacinda.bertie@eku.edu'}
-                ],
                 'reminders': {
                     'useDefault': True
                 },
             }
+
+            # Add attendees if any are configured
+            if attendee_emails:
+                event['attendees'] = [{'email': email} for email in attendee_emails]
 
             event = service.events().insert(calendarId='primary', body=event, sendUpdates='all').execute()
             print(f'Created calendar event for home game vs {game["opponent"]}')

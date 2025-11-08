@@ -1,0 +1,7 @@
+{
+    "attendees": [
+        "email1@example.com",
+        "email2@example.com"
+    ],
+    "google_client_secret_file": "client_secret_YOURCLIENTID.apps.googleusercontent.com.json"
+}

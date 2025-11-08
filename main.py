@@ -7,8 +7,22 @@ from datetime import datetime, timedelta
 import os.path
 import pickle
 import re
+import json
 
 SCOPES = ['https://www.googleapis.com/auth/calendar.events']
+
+def load_config():
+    """Load configuration from config.json file."""
+    try:
+        with open('config.json', 'r') as f:
+            return json.load(f)
+    except FileNotFoundError:
+        print("ERROR: config.json not found!")
+        print("Please copy config.json.example to config.json and fill in your details.")
+        raise
+    except json.JSONDecodeError as e:
+        print(f"ERROR: Invalid JSON in config.json: {e}")
+        raise
 
 # Month name to number mapping
 MONTH_MAP = {
@@ -19,17 +33,22 @@ MONTH_MAP = {
 
 def get_credentials():
     """Gets valid user credentials from storage or initiates OAuth2 flow."""
+    config = load_config()
+    client_secret_file = config.get('google_client_secret_file')
+
+    if not client_secret_file:
+        raise ValueError("google_client_secret_file not specified in config.json")
+
     creds = None
     if os.path.exists('token.pickle'):
         with open('token.pickle', 'rb') as token:
             creds = pickle.load(token)
-    
+
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
             creds.refresh(Request())
         else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                'client_secret_94829445065-jj6fc83as2g12lijs73dtnuetvmsmipb.apps.googleusercontent.com.json', SCOPES)
+            flow = InstalledAppFlow.from_client_secrets_file(client_secret_file, SCOPES)
             creds = flow.run_local_server(port=0)
         with open('token.pickle', 'wb') as token:
             pickle.dump(creds, token)
@@ -212,20 +231,24 @@ def does_event_exist(service, event_summary, event_start):
 def create_calendar_events(games, dry_run=False, start_from=None):
     """
     Creates Google Calendar events for each game.
-    
+
     Args:
         games: List of game dictionaries
         dry_run: If True, just print what would be created
         start_from: Optional opponent name to start from (skips games until this opponent)
     """
+    config = load_config()
+    attendee_emails = config.get('attendees', [])
+
     if dry_run:
         print("\nDRY RUN - Would create the following events:")
         for game in games:
             print(f"\nEvent: Kentucky Basketball vs {game['opponent']}")
             print(f"Date/Time: {game['datetime']}")
             print(f"Location: {game['location']}")
+            print(f"Attendees: {', '.join(attendee_emails)}")
         return
-        
+
     creds = get_credentials()
     service = build('calendar', 'v3', credentials=creds)
     
@@ -250,7 +273,8 @@ def create_calendar_events(games, dry_run=False, start_from=None):
             
             # Calculate end time
             end_time = get_event_duration(game['datetime'])
-            
+
+            # Build event object
             event = {
                 'summary': event_summary,
                 'location': game['location'],
@@ -263,13 +287,14 @@ def create_calendar_events(games, dry_run=False, start_from=None):
                     'dateTime': end_time.isoformat(),
                     'timeZone': 'America/New_York',
                 },
-                'attendees': [
-                    {'email': 'jacindabartie@gmail.com'}
-                ],
                 'reminders': {
                     'useDefault': True
                 },
             }
+
+            # Add attendees if any are configured
+            if attendee_emails:
+                event['attendees'] = [{'email': email} for email in attendee_emails]
 
             event = service.events().insert(calendarId='primary', body=event, sendUpdates='all').execute()
             print(f'Created calendar event for game vs {game["opponent"]}')

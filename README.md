@@ -40,11 +40,43 @@ pip install --upgrade google-api-python-client google-auth-httplib2 google-auth-
 
 ## Configuration
 
-1. Place your Google Calendar API credentials file in the same directory as the script
-2. Download schedule HTML files:
-   - `schedule.html`: Kentucky Basketball schedule from https://ukathletics.com/sports/mbball/schedule/
-   - `eku_sched.html`: EKU Basketball schedule from https://ekusports.com/sports/mens-basketball/schedule/
-3. Ensure the `SCOPES` variable matches your Google Calendar API permissions
+### Step 1: Google Calendar API Setup
+
+1. Go to the [Google Cloud Console](https://console.cloud.google.com/)
+2. Create a new project or select an existing one
+3. Enable the Google Calendar API
+4. Create OAuth 2.0 credentials (Desktop application)
+5. Download the client configuration file and save it in the project directory
+
+### Step 2: Create Configuration File
+
+1. Copy `config.json.example` to `config.json`:
+   ```bash
+   cp config.json.example config.json
+   ```
+
+2. Edit `config.json` and update:
+   - `attendees`: List of email addresses to invite to calendar events
+   - `google_client_secret_file`: Name of your Google API credentials file
+
+   Example:
+   ```json
+   {
+       "attendees": [
+           "person1@example.com",
+           "person2@example.com"
+       ],
+       "google_client_secret_file": "client_secret_YOURCLIENTID.apps.googleusercontent.com.json"
+   }
+   ```
+
+### Step 3: Download Schedule Files
+
+Download schedule HTML files to the project directory:
+- `schedule.html`: Kentucky Basketball schedule from https://ukathletics.com/sports/mbball/schedule/
+- `eku_sched.html`: EKU Basketball schedule from https://ekusports.com/sports/mens-basketball/schedule/
+
+**Note:** `config.json` is excluded from git to protect your email addresses and configuration. Never commit this file.
 
 ## Usage
 
