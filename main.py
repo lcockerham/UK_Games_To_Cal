@@ -88,8 +88,11 @@ def parse_schedule(html_content, max_games=None, dry_run=False):
     soup = BeautifulSoup(html_content, 'html.parser')
     games = []
     games_processed = 0
-    current_date = datetime.now()
-    
+
+    # Define date range for games to include
+    start_date = datetime(2025, 11, 8)
+    end_date = datetime(2025, 12, 30, 23, 59, 59)  # Include all of Dec 30
+
     # Find all schedule items
     schedule_items = soup.find_all('div', class_='schedule-item')
     
@@ -102,14 +105,16 @@ def parse_schedule(html_content, max_games=None, dry_run=False):
             # Get date
             date_elem = item.find('time')
             date_spans = date_elem.find_all('span')
-            
-            # Get month and day
-            month = date_spans[0].text.strip().replace('.', '')
-            day = date_spans[1].text.strip()
-            
-            # Determine year based on month (assuming season spans 2024-2025)
-            year = "2024" if month in ['Oct', 'Nov', 'Dec'] else "2025"
-            
+
+            # HTML structure: span[0] = day of week (e.g. "Tue."), span[1] = "Nov 4"
+            date_parts = date_spans[1].text.strip().split()
+            month = date_parts[0]  # e.g. "Nov"
+            day = date_parts[1]    # e.g. "4"
+
+            # Determine year based on month (assuming season spans Oct 2025 - Apr 2026)
+            # Basketball season starts in October, so Oct/Nov/Dec are in the first year
+            year = "2025" if month in ['Oct', 'Nov', 'Dec'] else "2026"
+
             date_text = f"{month} {day} {year}"
             
             # Get team names
@@ -140,11 +145,11 @@ def parse_schedule(html_content, max_games=None, dry_run=False):
             else:
                 # Default to noon for TBA games
                 game_datetime = parse_datetime(date_text, "12:00 PM")
-            
-            # Skip if game date is in the past
-            if game_datetime < current_date:
+
+            # Skip if game is outside the date range
+            if game_datetime < start_date or game_datetime > end_date:
                 if dry_run:
-                    print(f"Skipping past game: {opponent} on {game_datetime}")
+                    print(f"Skipping game outside date range: {opponent} on {game_datetime}")
                 continue
                 
             games.append({
@@ -258,12 +263,15 @@ def create_calendar_events(games, dry_run=False, start_from=None):
                     'dateTime': end_time.isoformat(),
                     'timeZone': 'America/New_York',
                 },
+                'attendees': [
+                    {'email': 'jacindabartie@gmail.com'}
+                ],
                 'reminders': {
                     'useDefault': True
                 },
             }
 
-            event = service.events().insert(calendarId='primary', body=event).execute()
+            event = service.events().insert(calendarId='primary', body=event, sendUpdates='all').execute()
             print(f'Created calendar event for game vs {game["opponent"]}')
             
         except Exception as e:
@@ -278,11 +286,13 @@ def main():
     
     # Parse schedule and create events
     games = parse_schedule(html_content, dry_run=False)
-    
+
+    print(f"\nFound {len(games)} games to add")
+
     if games:
         # You can specify which game to start from by uncommenting and modifying the line below
-        create_calendar_events(games, dry_run=False, start_from="Brown")
-        #create_calendar_events(games, dry_run=False)
+        create_calendar_events(games, dry_run=False)
+        #create_calendar_events(games, dry_run=False, start_from="Brown")
     else:
         print("No upcoming games found to process")
 
