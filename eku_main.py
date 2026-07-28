@@ -1,58 +1,20 @@
 """EKU Basketball schedule parser for HOME games only."""
 import json
-import os.path
-import pickle
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 
+import requests
 from bs4 import BeautifulSoup
-from google.auth.transport.requests import Request
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
 
-SCOPES = ['https://www.googleapis.com/auth/calendar.events']
+from calendar_common import REQUEST_HEADERS, does_event_exist, get_calendar_service, load_config
 
-def load_config():
-    """Load configuration from config.json file."""
-    try:
-        with open('config.json', 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except FileNotFoundError:
-        print("ERROR: config.json not found!")
-        print("Please copy config.json.example to config.json and fill in your details.")
-        raise
-    except json.JSONDecodeError as e:
-        print(f"ERROR: Invalid JSON in config.json: {e}")
-        raise
+SCHEDULE_URL = 'https://ekusports.com/sports/mens-basketball/schedule/'
 
-def get_credentials():
-    """Gets valid user credentials from storage or initiates OAuth2 flow."""
-    config = load_config()
-    client_secret_file = config.get('google_client_secret_file')
-
-    if not client_secret_file:
-        raise ValueError("google_client_secret_file not specified in config.json")
-
-    creds = None
-    if os.path.exists('token.pickle'):
-        with open('token.pickle', 'rb') as token:
-            creds = pickle.load(token)
-
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file(client_secret_file, SCOPES)
-            creds = flow.run_local_server(port=0)
-        with open('token.pickle', 'wb') as token:
-            pickle.dump(creds, token)
-    return creds
 
 def parse_eku_schedule(html_content):
     """Parse EKU schedule from JSON-LD data and return only HOME games."""
     soup = BeautifulSoup(html_content, 'html.parser')
     games = []
 
-    # Find the JSON-LD script tag with the schedule data
     json_ld_scripts = soup.find_all('script', type='application/ld+json')
 
     for script in json_ld_scripts:
@@ -61,7 +23,6 @@ def parse_eku_schedule(html_content):
             if isinstance(data, list):
                 for event in data:
                     if event.get('@type') == 'SportsEvent':
-                        # Check if it's a home game (Baptist Health Arena in Richmond, Ky.)
                         location = event.get('location', {})
                         location_name = location.get('name', '')
                         address = location.get('address', {})
@@ -69,103 +30,76 @@ def parse_eku_schedule(html_content):
 
                         # Only include home games
                         if 'Baptist Health Arena' in location_name and 'Richmond' in location_city:
-                            # Parse the datetime
                             start_date_str = event.get('startDate', '')
                             if start_date_str:
-                                # Format: "2025-11-10T19:00:00"
+                                # Format: "2026-11-10T19:00:00"; "T00:00:00" means no time announced yet
                                 game_datetime = datetime.strptime(start_date_str, "%Y-%m-%dT%H:%M:%S")
+                                is_tba = game_datetime.time() == time(0, 0)
 
-                                # Extract opponent from name
                                 name = event.get('name', '')
-                                # Format is "Eastern Kentucky University Vs Opponent"
                                 opponent = name.replace('Eastern Kentucky University Vs ', '')
                                 opponent = opponent.replace('Eastern Kentucky University vs ', '')
 
                                 games.append({
-                                    'datetime': game_datetime,
+                                    'date': game_datetime.date(),
+                                    'datetime': None if is_tba else game_datetime,
                                     'opponent': opponent,
                                     'location': f"{location_name} | {location_city}"
                                 })
 
-                                print(f"Found home game: {opponent} on {game_datetime}")
+                                print(f"Found home game: {opponent} on {game_datetime.date()}")
         except (json.JSONDecodeError, ValueError) as e:
             print(f"Error parsing JSON-LD: {str(e)}")
             continue
 
-    # Sort games by date
-    games.sort(key=lambda x: x['datetime'])
+    games.sort(key=lambda g: g['date'])
 
     return games
 
-def does_event_exist(service, event_summary, event_start):
-    """Check if an event already exists in the calendar."""
-    # Convert datetime to RFC3339 format
-    time_min = (event_start - timedelta(minutes=1)).isoformat() + 'Z'
-    time_max = (event_start + timedelta(minutes=1)).isoformat() + 'Z'
 
-    try:
-        events_result = service.events().list(
-            calendarId='primary',
-            timeMin=time_min,
-            timeMax=time_max,
-            q=event_summary,
-            singleEvents=True,
-            orderBy='startTime'
-        ).execute()
+def build_event_body(game, attendee_emails):
+    """Build the Google Calendar event body for a home game (timed or all-day)."""
+    event_summary = f"EKU Basketball vs {game['opponent']}"
+    description = f"Eastern Kentucky Colonels basketball home game against {game['opponent']}"
 
-        events = events_result.get('items', [])
+    event = {
+        'summary': event_summary,
+        'location': game['location'],
+        'reminders': {'useDefault': True},
+    }
 
-        for event in events:
-            if event['summary'] == event_summary:
-                return True
+    if game['datetime']:
+        end_time = game['datetime'] + timedelta(hours=2)
+        event['start'] = {'dateTime': game['datetime'].isoformat(), 'timeZone': 'America/New_York'}
+        event['end'] = {'dateTime': end_time.isoformat(), 'timeZone': 'America/New_York'}
+        event['description'] = description
+    else:
+        next_day = (game['date'] + timedelta(days=1)).isoformat()
+        event['start'] = {'date': game['date'].isoformat()}
+        event['end'] = {'date': next_day}
+        event['description'] = f"{description} (Time TBA — update once announced)"
 
-        return False
+    if attendee_emails:
+        event['attendees'] = [{'email': email} for email in attendee_emails]
 
-    except Exception as e:
-        print(f"Error checking for existing event: {str(e)}")
-        return False
+    return event, event_summary
+
 
 def create_calendar_events(games):
     """Creates Google Calendar events for each home game."""
     config = load_config()
     attendee_emails = config.get('attendees', [])
 
-    creds = get_credentials()
-    service = build('calendar', 'v3', credentials=creds)
+    service = get_calendar_service()
 
     for game in games:
         try:
-            event_summary = f"EKU Basketball vs {game['opponent']}"
+            event, event_summary = build_event_body(game, attendee_emails)
+            check_time = game['datetime'] or datetime.combine(game['date'], datetime.min.time())
 
-            # Check if event already exists
-            if does_event_exist(service, event_summary, game['datetime']):
+            if does_event_exist(service, event_summary, check_time):
                 print(f"Skipping existing event: {event_summary}")
                 continue
-
-            # Calculate end time (2 hours later)
-            end_time = game['datetime'] + timedelta(hours=2)
-
-            # Build event object
-            event = {
-                'summary': event_summary,
-                'location': game['location'],
-                'description': f"Eastern Kentucky Colonels basketball home game against {game['opponent']}",
-                'start': {
-                    'dateTime': game['datetime'].isoformat(),
-                    'timeZone': 'America/New_York',
-                },
-                'end': {
-                    'dateTime': end_time.isoformat(),
-                    'timeZone': 'America/New_York',
-                },
-                'reminders': {
-                    'useDefault': True
-                },
-            }
-
-            # Add attendees if any are configured
-            if attendee_emails:
-                event['attendees'] = [{'email': email} for email in attendee_emails]
 
             service.events().insert(calendarId='primary', body=event, sendUpdates='all').execute()
             print(f'Created calendar event for home game vs {game["opponent"]}')
@@ -175,13 +109,11 @@ def create_calendar_events(games):
             raise
 
 def main():
-    """Main function to parse EKU schedule and create calendar events."""
-    # Read HTML content from file
-    with open('eku_sched.html', 'r', encoding='utf-8') as file:
-        html_content = file.read()
+    """Main function to fetch the live EKU schedule and create calendar events for HOME games."""
+    response = requests.get(SCHEDULE_URL, headers=REQUEST_HEADERS, timeout=30)
+    response.raise_for_status()
 
-    # Parse schedule and create events for HOME games only
-    games = parse_eku_schedule(html_content)
+    games = parse_eku_schedule(response.text)
 
     print(f"\nFound {len(games)} home games to add")
 

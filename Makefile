@@ -13,10 +13,10 @@ install:
 	pip install -r requirements.txt
 
 lint:
-	python -m pylint main.py eku_main.py update_attendees.py
+	python -m pylint main.py eku_main.py calendar_common.py
 
 lint-fix:
-	python -m isort main.py eku_main.py update_attendees.py
+	python -m isort main.py eku_main.py calendar_common.py
 	@echo "Trailing whitespace must be fixed manually in your editor"
 
 clean:
