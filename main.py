@@ -1,14 +1,28 @@
 """Kentucky Basketball schedule parser and Google Calendar integration."""
+import base64
 import re
 from datetime import datetime, timedelta
 
 import requests
 from bs4 import BeautifulSoup
 
-from calendar_common import (REQUEST_HEADERS, does_event_exist, get_calendar_service,
+from calendar_common import (REQUEST_HEADERS, find_event_on_date, get_calendar_service,
                               load_config, resolve_game_year)
 
 SCHEDULE_URL = 'https://ukathletics.com/sports/mbball/schedule/'
+
+# The schedule page only shows TV networks as logo images, so map logo
+# filename keywords to network names. Order matters: more specific keywords
+# must come before the shorter ones they contain (e.g. espn2 before espn).
+TV_LOGO_NETWORKS = [
+    ('sec_network_plus', 'SEC Network+'),
+    ('sec_network', 'SEC Network'),
+    ('espn2', 'ESPN2'),
+    ('espn_u', 'ESPNU'),
+    ('espn', 'ESPN'),
+    ('cbs', 'CBS'),
+    ('abc', 'ABC'),
+]
 
 # Month name to number mapping
 MONTH_MAP = {
@@ -51,6 +65,34 @@ def parse_datetime(game_date, time_text):
     return datetime.strptime(f"{game_date.isoformat()} {time_text}", "%Y-%m-%d %I:%M %p")
 
 
+def logo_filename(img_src):
+    """Decode the original image filename from an imgproxy logo URL."""
+    # imgproxy URLs end with the base64url-encoded source URL plus an extension
+    encoded = img_src.rsplit('/', 1)[-1].rsplit('.', 1)[0]
+    encoded += '=' * (-len(encoded) % 4)
+    try:
+        return base64.urlsafe_b64decode(encoded).decode().rsplit('/', 1)[-1]
+    except ValueError:
+        return ''
+
+
+def parse_tv_networks(item):
+    """Return the TV networks shown as logos at the bottom of a schedule item."""
+    networks = []
+    bottom = item.find('div', class_='schedule-item__bottom')
+    if not bottom:
+        return networks
+
+    for img in bottom.find_all('img'):
+        filename = logo_filename(img.get('src', ''))
+        network = next((name for key, name in TV_LOGO_NETWORKS if key in filename), None)
+        if network is None:
+            print(f"Note: unrecognized logo '{filename}' - not treated as a TV network")
+        elif network not in networks:
+            networks.append(network)
+    return networks
+
+
 def parse_schedule(html_content, dry_run=False):
     """
     Parses the schedule HTML and returns list of games for the current/upcoming season.
@@ -91,12 +133,14 @@ def parse_schedule(html_content, dry_run=False):
                 continue
 
             game_datetime = None if time_text == "TBA" else parse_datetime(game_date, time_text)
+            tv_networks = parse_tv_networks(item)
 
             games.append({
                 'date': game_date,
                 'datetime': game_datetime,
                 'opponent': opponent,
-                'location': location
+                'location': location,
+                'tv': tv_networks
             })
 
             if dry_run:
@@ -105,6 +149,7 @@ def parse_schedule(html_content, dry_run=False):
                 print(f"Date: {game_date}")
                 print(f"Time: {time_text if game_datetime else 'TBA'}")
                 print(f"Location: {location}")
+                print(f"TV: {' / '.join(tv_networks) or 'TBA'}")
                 print("-" * 50)
 
         except Exception as e:
@@ -136,6 +181,9 @@ def build_event_body(game, attendee_emails):
         event['end'] = {'date': next_day}
         event['description'] = f"{description} (Time TBA — update once announced)"
 
+    if game['tv']:
+        event['description'] += f"\nWhere to watch: {' / '.join(game['tv'])}"
+
     if attendee_emails:
         event['attendees'] = [{'email': email} for email in attendee_emails]
 
@@ -154,6 +202,7 @@ def create_calendar_events(games, dry_run=False):
             time_note = game['datetime'].strftime('at %I:%M %p') if game['datetime'] else '(all-day, TBA)'
             print(f"Date: {game['date']} {time_note}")
             print(f"Location: {game['location']}")
+            print(f"TV: {' / '.join(game['tv']) or 'TBA'}")
             print(f"Attendees: {', '.join(attendee_emails)}")
         return
 
@@ -162,10 +211,16 @@ def create_calendar_events(games, dry_run=False):
     for game in games:
         try:
             event, event_summary = build_event_body(game, attendee_emails)
-            check_time = game['datetime'] or datetime.combine(game['date'], datetime.min.time())
+            existing = find_event_on_date(service, event_summary, game['date'])
 
-            if does_event_exist(service, event_summary, check_time):
-                print(f"Skipping existing event: {event_summary}")
+            if existing:
+                # Refresh time/TV/location in place so TBA placeholders become timed
+                # events. Attendees are left alone so existing RSVPs are kept.
+                for field in ('start', 'end', 'description', 'location'):
+                    existing[field] = event[field]
+                service.events().update(calendarId='primary', eventId=existing['id'],
+                                        body=existing, sendUpdates='none').execute()
+                print(f"Updated existing event: {event_summary}")
                 continue
 
             service.events().insert(calendarId='primary', body=event, sendUpdates='all').execute()

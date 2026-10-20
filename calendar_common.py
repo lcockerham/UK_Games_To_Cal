@@ -2,13 +2,16 @@
 import json
 import os.path
 import pickle
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
 SCOPES = ['https://www.googleapis.com/auth/calendar.events']
+
+CALENDAR_TIMEZONE = ZoneInfo('America/New_York')
 
 # How far in the past a resolved game date is allowed to be, in days. Keeps
 # re-runs mid-season working (today can be after some games already happened)
@@ -91,6 +94,27 @@ def does_event_exist(service, event_summary, event_start):
     except Exception as e:
         print(f"Error checking for existing event: {str(e)}")
         return False
+
+
+def find_event_on_date(service, event_summary, event_date):
+    """Return the event titled event_summary on event_date (all-day or timed), or None.
+
+    Searches the whole local day so an all-day TBA placeholder is found once
+    the game gets a real start time.
+    """
+    day_start = datetime.combine(event_date, time.min, tzinfo=CALENDAR_TIMEZONE)
+    events_result = service.events().list(
+        calendarId='primary',
+        timeMin=day_start.isoformat(),
+        timeMax=(day_start + timedelta(days=1)).isoformat(),
+        q=event_summary,
+        singleEvents=True
+    ).execute()
+
+    for event in events_result.get('items', []):
+        if event.get('summary') == event_summary:
+            return event
+    return None
 
 
 def resolve_game_year(month_num, day, today=None):
